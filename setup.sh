@@ -290,6 +290,9 @@ deploy_docker_app() {
   # Place the app's runtime secrets (kept out of git, on the server only).
   if [ -f "/opt/deploy/$NAME.env" ]; then
     cp "/opt/deploy/$NAME.env" "$APP/.env"
+  else
+    log "Missing /opt/deploy/$NAME.env — skipping launch of $NAME (provision the env, then rerun)"
+    return 0
   fi
 
   cd "$APP"
