@@ -295,6 +295,10 @@ deploy_docker_app() {
     return 0
   fi
 
+  # Ensure data dir exists and is owned by the user the container runs as (matches compose default 1000:1000).
+  mkdir -p "$APP/data"
+  chown 1000:1000 "$APP/data"
+
   cd "$APP"
   docker compose up -d --build
 }
