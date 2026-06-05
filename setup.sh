@@ -349,7 +349,7 @@ deploy_docker_app() {
   fi
 
   # Sync source into app dir, excluding VCS metadata.
-  rsync -a --delete --exclude '.git' "$BASE/" "$APP/"
+  rsync -a --delete --exclude '.git' "$BASE/" "$APP/" 'data/'
 
   # Place the app's runtime secrets (kept out of git, on the server only).
   if [ -f "/opt/deploy/$NAME.env" ]; then
