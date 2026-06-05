@@ -200,16 +200,18 @@ setup_nginx() {
 }
 
 deploy_static_site() {
-  DOMAIN="$1"
-  REPO="$2"
+  local DOMAIN="$1"
+  local REPO="$2"
+  local ALIASES="${3:-}"
+  local IS_DEFAULT="${4:-}"
 
   [ -n "$DOMAIN" ] && [ -n "$REPO" ] || { log "Skipping static site (unset domain/repo)"; return 0; }
 
   log "Deploying static site $DOMAIN"
   git_ssh
 
-  BASE="/opt/git/$DOMAIN"
-  WWW="/var/www/$DOMAIN"
+  local BASE="/opt/git/$DOMAIN"
+  local WWW="/var/www/$DOMAIN"
 
   ensure_dir "$BASE"
   ensure_dir "$WWW"
@@ -228,10 +230,14 @@ deploy_static_site() {
     log "Build failed for $DOMAIN — keeping existing $WWW"
   fi
 
+  local SERVER_NAMES="$DOMAIN www.$DOMAIN${ALIASES:+ $ALIASES}"
+  local LISTEN_LINE="listen 80;"
+  [ -n "$IS_DEFAULT" ] && LISTEN_LINE="listen 80 default_server;"
+
   cat >/etc/nginx/sites-available/"$DOMAIN" <<EOF
 server {
-  listen 80;
-  server_name $DOMAIN;
+  $LISTEN_LINE
+  server_name $SERVER_NAMES;
   root $WWW;
   index index.html;
 
@@ -249,14 +255,21 @@ EOF
   if [ -n "${CERTBOT_EMAIL:-}" ]; then
     ensure_pkg certbot
     ensure_pkg python3-certbot-nginx
-    certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos \
-      -m "$CERTBOT_EMAIL" --redirect --keep-until-expiring \
+    local CERTBOT_FLAGS="-d $DOMAIN -d www.$DOMAIN"
+    if [ -n "$ALIASES" ]; then
+      for _a in $ALIASES; do CERTBOT_FLAGS="$CERTBOT_FLAGS -d $_a"; done
+    fi
+    # shellcheck disable=SC2086
+    certbot --nginx $CERTBOT_FLAGS --non-interactive --agree-tos \
+      -m "$CERTBOT_EMAIL" --redirect --keep-until-expiring --expand \
       || log "Certbot failed for $DOMAIN (DNS not pointing here yet?) — left HTTP-only"
   fi
 }
 
 deploy_placeholder_site() {
   local DOMAIN="$1"
+  local ALIASES="${2:-}"
+  local IS_DEFAULT="${3:-}"
   local PLACEHOLDER="/opt/deploy/index.html"
 
   log "Deploying placeholder for $DOMAIN"
@@ -270,11 +283,16 @@ deploy_placeholder_site() {
   fi
 
   sed "s/__DOMAIN__/$DOMAIN/g" "$PLACEHOLDER" > "$WWW/index.html"
+  [ -f /opt/deploy/favicon.ico ] && cp /opt/deploy/favicon.ico "$WWW/favicon.ico"
+
+  local SERVER_NAMES="$DOMAIN www.$DOMAIN${ALIASES:+ $ALIASES}"
+  local LISTEN_LINE="listen 80;"
+  [ -n "$IS_DEFAULT" ] && LISTEN_LINE="listen 80 default_server;"
 
   cat >/etc/nginx/sites-available/"$DOMAIN" <<EOF
 server {
-  listen 80;
-  server_name $DOMAIN;
+  $LISTEN_LINE
+  server_name $SERVER_NAMES;
   root $WWW;
   index index.html;
 
@@ -290,8 +308,13 @@ EOF
   if [ -n "${CERTBOT_EMAIL:-}" ]; then
     ensure_pkg certbot
     ensure_pkg python3-certbot-nginx
-    certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos \
-      -m "$CERTBOT_EMAIL" --redirect --keep-until-expiring \
+    local CERTBOT_FLAGS="-d $DOMAIN -d www.$DOMAIN"
+    if [ -n "$ALIASES" ]; then
+      for _a in $ALIASES; do CERTBOT_FLAGS="$CERTBOT_FLAGS -d $_a"; done
+    fi
+    # shellcheck disable=SC2086
+    certbot --nginx $CERTBOT_FLAGS --non-interactive --agree-tos \
+      -m "$CERTBOT_EMAIL" --redirect --keep-until-expiring --expand \
       || log "Certbot failed for $DOMAIN (DNS not pointing here yet?) — left HTTP-only"
   fi
 }
@@ -400,18 +423,19 @@ main() {
   healthcheck
 
   # Static sites — placeholder when domain is set but no repo configured
+  # SITE1 is the default_server (catch-all fallback for unmatched hostnames).
   if [ -n "${SITE1_DOMAIN:-}" ]; then
     if [ -n "${SITE1_REPO:-}" ]; then
-      deploy_static_site "$SITE1_DOMAIN" "$SITE1_REPO"
+      deploy_static_site "$SITE1_DOMAIN" "$SITE1_REPO" "${SITE1_ALIASES:-}" "default"
     else
-      deploy_placeholder_site "$SITE1_DOMAIN"
+      deploy_placeholder_site "$SITE1_DOMAIN" "${SITE1_ALIASES:-}" "default"
     fi
   fi
   if [ -n "${SITE2_DOMAIN:-}" ]; then
     if [ -n "${SITE2_REPO:-}" ]; then
-      deploy_static_site "$SITE2_DOMAIN" "$SITE2_REPO"
+      deploy_static_site "$SITE2_DOMAIN" "$SITE2_REPO" "${SITE2_ALIASES:-}"
     else
-      deploy_placeholder_site "$SITE2_DOMAIN"
+      deploy_placeholder_site "$SITE2_DOMAIN" "${SITE2_ALIASES:-}"
     fi
   fi
 
