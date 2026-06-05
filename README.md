@@ -72,7 +72,7 @@ chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys
 
 ```bash
 ssh root@<IP> 'mkdir -p /opt/deploy'
-scp setup.sh .env.example root@<IP>:/opt/deploy/
+scp setup.sh .env.example index.html root@<IP>:/opt/deploy/
 ```
 
 ## 5. Fill in `config.env`

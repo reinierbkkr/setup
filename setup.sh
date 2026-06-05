@@ -255,6 +255,47 @@ EOF
   fi
 }
 
+deploy_placeholder_site() {
+  local DOMAIN="$1"
+  local PLACEHOLDER="/opt/deploy/index.html"
+
+  log "Deploying placeholder for $DOMAIN"
+
+  local WWW="/var/www/$DOMAIN"
+  ensure_dir "$WWW"
+
+  if [ ! -f "$PLACEHOLDER" ]; then
+    log "No placeholder at $PLACEHOLDER — skipping $DOMAIN"
+    return 0
+  fi
+
+  sed "s/__DOMAIN__/$DOMAIN/g" "$PLACEHOLDER" > "$WWW/index.html"
+
+  cat >/etc/nginx/sites-available/"$DOMAIN" <<EOF
+server {
+  listen 80;
+  server_name $DOMAIN;
+  root $WWW;
+  index index.html;
+
+  location / {
+    try_files \$uri \$uri/ /index.html;
+  }
+}
+EOF
+
+  ln -sf /etc/nginx/sites-available/"$DOMAIN" /etc/nginx/sites-enabled/
+  nginx -t && systemctl reload nginx
+
+  if [ -n "${CERTBOT_EMAIL:-}" ]; then
+    ensure_pkg certbot
+    ensure_pkg python3-certbot-nginx
+    certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos \
+      -m "$CERTBOT_EMAIL" --redirect --keep-until-expiring \
+      || log "Certbot failed for $DOMAIN (DNS not pointing here yet?) — left HTTP-only"
+  fi
+}
+
 deploy_docker_app() {
   NAME="$1"
   REPO="$2"
@@ -343,6 +384,7 @@ main() {
   ensure_pkg rsync
   ensure_pkg nodejs
   ensure_pkg npm
+  ensure_pkg sqlite3
 
   ensure_user "$ADMIN_USER"
 
@@ -357,9 +399,21 @@ main() {
   install_tailscale
   healthcheck
 
-  # Static sites
-  deploy_static_site "${SITE1_DOMAIN:-}" "${SITE1_REPO:-}"
-  deploy_static_site "${SITE2_DOMAIN:-}" "${SITE2_REPO:-}"
+  # Static sites — placeholder when domain is set but no repo configured
+  if [ -n "${SITE1_DOMAIN:-}" ]; then
+    if [ -n "${SITE1_REPO:-}" ]; then
+      deploy_static_site "$SITE1_DOMAIN" "$SITE1_REPO"
+    else
+      deploy_placeholder_site "$SITE1_DOMAIN"
+    fi
+  fi
+  if [ -n "${SITE2_DOMAIN:-}" ]; then
+    if [ -n "${SITE2_REPO:-}" ]; then
+      deploy_static_site "$SITE2_DOMAIN" "$SITE2_REPO"
+    else
+      deploy_placeholder_site "$SITE2_DOMAIN"
+    fi
+  fi
 
   # Docker app
   deploy_docker_app "${APP_NAME:-}" "${APP_REPO:-}"

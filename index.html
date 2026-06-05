@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!--<link rel="icon" type="image/svg+xml" href="/vite.svg" />-->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>__DOMAIN__</title>
+    <style>
+      body,
+      html,
+      .main {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: clip;
+        text-shadow:
+          0 0 10px #ffd,
+          0 0 13px #ffd,
+          0 0 16px #ffd,
+          0 0 30px #ffd;
+      }
+
+      .main {
+        position: relative;
+      }
+
+      .main:before {
+        width: 400%;
+        height: 400%;
+        left: -150%;
+        top: -150%;
+        position: absolute;
+        background: linear-gradient(
+          50deg,
+          rgb(130, 20, 20) 35%,
+          rgb(20, 20, 130) 45%,
+          rgb(130, 130, 20) 65%
+        );
+        content: '';
+        animation: spin 100s infinite;
+      }
+
+      .content {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+      }
+
+      @keyframes spin {
+        0% {
+          transform: rotate(0deg);
+        }
+        100% {
+          transform: rotate(360deg);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="main">
+      <div class="content">
+        __DOMAIN__
+      </div>
+    </div>
+  </body>
+</html>
