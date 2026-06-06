@@ -180,6 +180,58 @@ still-open root session.
 
 ---
 
+## Updates & reboots
+
+**Automatic (hands-off).** `setup_unattended_upgrades` installs and enables
+`unattended-upgrades`: security patches apply nightly, and the box auto-reboots at
+**04:30** *only* when a patch requires it (kernel/libc — i.e. `/var/run/reboot-required`
+exists). Scope is **security-only origins** — no feature or major version bumps happen
+automatically. Docker (its own apt repo) and your app images are **not** touched. The
+docker app must have `restart: unless-stopped` in its compose file so it comes back after
+a reboot.
+
+To change the reboot hour, edit `Automatic-Reboot-Time "04:30"` in the
+`setup_unattended_upgrades` heredoc and rerun the script.
+
+### Manual major updates (deliberate, ~monthly/quarterly)
+
+Major package, Docker engine, and distro-release upgrades are **never** automatic — run
+them yourself in a low-traffic window, watching. **Snapshot first** (one-click rollback):
+
+```bash
+# from your laptop, via doctl — or use the DigitalOcean control panel
+doctl compute droplet-action snapshot <droplet-id> --snapshot-name "pre-upgrade-$(date +%F)"
+```
+
+**1. System packages (within the release):**
+```bash
+sudo apt-get update
+apt list --upgradable            # review before committing
+sudo apt-get dist-upgrade -y     # allows kernel/dep changes
+sudo needrestart -r a            # restart stale services; reboot if kernel changed
+```
+
+**2. Docker engine** (separate repo, not auto-patched — bring the app down clean first):
+```bash
+sudo docker compose -f /opt/apps/<name>/compose.yml down
+sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+sudo systemctl restart docker
+sudo docker compose -f /opt/apps/<name>/compose.yml up -d
+docker ps                        # verify it's back
+```
+
+**3. App base images** (`FROM node:…` etc go stale) — just rerun `setup.sh`, which does
+`docker compose up -d --build`, or manually:
+```bash
+cd /opt/apps/<name> && sudo docker compose pull && sudo docker compose up -d --build
+```
+
+**4. Distro release (24.04 → next LTS)** — rarest, most fragile. Snapshot mandatory,
+babysit the prompts, verify nginx + app + certbot afterward:
+```bash
+sudo do-release-upgrade
+```
+
 ## Notes on app deploy (docker)
 
 - **Tags drive releases.** The script fetches tags and checks out the newest one. No

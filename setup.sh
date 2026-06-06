@@ -214,6 +214,36 @@ EOF
   systemctl restart systemd-journald
 }
 
+setup_unattended_upgrades() {
+  log "unattended-upgrades (auto security patches + reboot)"
+  ensure_pkg unattended-upgrades
+
+  # Enable the periodic update/upgrade timers.
+  cat >/etc/apt/apt.conf.d/20auto-upgrades <<'EOF'
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Unattended-Upgrade "1";
+APT::Periodic::AutocleanInterval "7";
+EOF
+
+  # Security-only origins. Feature/major bumps live in -updates and are
+  # intentionally NOT allowed here — those are handled by deliberate manual
+  # upgrades (see "Manual major updates" in README/description.md). Auto-reboot
+  # fires only when a patch sets /var/run/reboot-required (kernel/libc).
+  cat >/etc/apt/apt.conf.d/52unattended-upgrades-local <<'EOF'
+Unattended-Upgrade::Allowed-Origins {
+    "${distro_id}:${distro_codename}-security";
+    "${distro_id}ESMApps:${distro_codename}-apps-security";
+    "${distro_id}ESM:${distro_codename}-infra-security";
+};
+Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
+Unattended-Upgrade::Remove-Unused-Dependencies "true";
+Unattended-Upgrade::Automatic-Reboot "true";
+Unattended-Upgrade::Automatic-Reboot-Time "04:30";
+EOF
+
+  systemctl enable --now unattended-upgrades &>/dev/null || true
+}
+
 setup_cleanup() {
   log "weekly cleanup cron"
   cat >/etc/cron.weekly/system-cleanup <<'EOF'
@@ -471,6 +501,7 @@ main() {
   setup_docker
   setup_docker_firewall
   setup_journald
+  setup_unattended_upgrades
   setup_cleanup
   setup_nginx
   install_tailscale
