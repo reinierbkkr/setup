@@ -24,6 +24,26 @@ require_var() {
   [ -n "${!name:-}" ] || die "Required config var '$name' is empty in $CONFIG"
 }
 
+set_system_hostname() {
+  [ -n "${NEW_HOSTNAME:-}" ] || { echo "  [=] hostname (NEW_HOSTNAME not set, skipping)"; return 0; }
+
+  local current
+  current=$(hostname)
+  if [ "$current" = "$NEW_HOSTNAME" ]; then
+    echo "  [=] hostname already $NEW_HOSTNAME"
+    return 0
+  fi
+
+  log "Setting hostname: $current -> $NEW_HOSTNAME"
+  hostnamectl set-hostname "$NEW_HOSTNAME"
+
+  [ -f /etc/hosts ] && \
+    sed -i -E "s/^(127\.0\.0\.1|127\.0\.1\.1).*/\1 $NEW_HOSTNAME/" /etc/hosts
+
+  [ -f /etc/cloud/cloud.cfg ] && \
+    sed -i 's/^preserve_hostname: [[:space:]]*false/preserve_hostname: true/' /etc/cloud/cloud.cfg
+}
+
 # Wire an optional GitHub deploy key for private-repo clones/pulls.
 git_ssh() {
   if [ -n "${DEPLOY_KEY:-}" ] && [ -f "$DEPLOY_KEY" ]; then
@@ -34,7 +54,12 @@ git_ssh() {
 }
 
 ensure_pkg() {
-  dpkg -s "$1" &>/dev/null || apt-get install -y "$1"
+  if dpkg -s "$1" &>/dev/null; then
+    echo "  [=] $1 (already installed)"
+  else
+    echo "  [-] installing $1"
+    apt-get install -y "$1"
+  fi
 }
 
 ensure_dir() {
@@ -42,7 +67,12 @@ ensure_dir() {
 }
 
 ensure_user() {
-  id "$1" &>/dev/null || useradd -m -s /bin/bash "$1"
+  if id "$1" &>/dev/null; then
+    echo "  [=] user $1 (already exists)"
+  else
+    echo "  [-] creating user $1"
+    useradd -m -s /bin/bash "$1"
+  fi
   usermod -aG sudo "$1"
   usermod -aG docker "$1" || true
 
@@ -89,10 +119,16 @@ setup_firewall() {
   ufw allow 443/tcp
   ufw allow 41641/udp     # Tailscale
 
+  # Tailnet-only app port: reachable on Tailscale interface, never public.
+  if [ -n "${APP_PORT:-}" ]; then
+    ufw allow in on tailscale0 to any port "$APP_PORT" proto tcp
+  fi
+
   ufw --force enable
 }
 
 setup_fail2ban() {
+  log "fail2ban setup"
   ensure_pkg fail2ban
 
   cat >/etc/fail2ban/jail.local <<EOF
@@ -107,7 +143,10 @@ EOF
 setup_docker() {
   log "Docker setup"
 
-  if ! command -v docker &>/dev/null; then
+  if command -v docker &>/dev/null; then
+    echo "  [=] docker (already installed)"
+  else
+    echo "  [-] installing docker"
     curl -fsSL https://get.docker.com | sh
   fi
 
@@ -133,7 +172,10 @@ setup_docker_firewall() {
   local marker="# BEGIN vps-setup docker-user"
 
   [ -f "$rules" ] || die "Missing $rules — is UFW installed?"
-  grep -qF "$marker" "$rules" && return 0   # idempotent: already applied
+  if grep -qF "$marker" "$rules"; then
+    echo "  [=] DOCKER-USER rules already applied"
+    return 0
+  fi
 
   # Docker publishes container ports straight into iptables, bypassing UFW.
   # The DOCKER-USER chain runs before Docker's own rules on forwarded traffic,
@@ -161,6 +203,7 @@ EOF
 }
 
 setup_journald() {
+  log "journald limits"
   mkdir -p /etc/systemd/journald.conf.d
   cat >/etc/systemd/journald.conf.d/limits.conf <<EOF
 [Journal]
@@ -172,6 +215,7 @@ EOF
 }
 
 setup_cleanup() {
+  log "weekly cleanup cron"
   cat >/etc/cron.weekly/system-cleanup <<'EOF'
 #!/bin/bash
 apt-get autoremove -y
@@ -186,13 +230,18 @@ EOF
 }
 
 install_tailscale() {
-  if ! command -v tailscale &>/dev/null; then
+  log "Tailscale"
+  if command -v tailscale &>/dev/null; then
+    echo "  [=] tailscale (already installed)"
+  else
+    echo "  [-] installing tailscale"
     curl -fsSL https://tailscale.com/install.sh | sh
   fi
   # NOT auto-joined by design — run `tailscale up` manually after setup.
 }
 
 setup_nginx() {
+  log "nginx setup"
   ensure_pkg nginx
   # Stock default vhost is a catch-all that can shadow our sites.
   rm -f /etc/nginx/sites-enabled/default
@@ -217,8 +266,10 @@ deploy_static_site() {
   ensure_dir "$WWW"
 
   if [ ! -d "$BASE/.git" ]; then
+    echo "  [-] cloning $REPO"
     git clone "$REPO" "$BASE"
   else
+    echo "  [-] pulling $BASE"
     git -C "$BASE" pull --ff-only
   fi
 
@@ -335,22 +386,24 @@ deploy_docker_app() {
   ensure_dir "$APP"
 
   if [ ! -d "$BASE/.git" ]; then
+    echo "  [-] cloning $REPO"
     git clone "$REPO" "$BASE"
   else
+    echo "  [-] fetching tags for $NAME"
     git -C "$BASE" fetch --tags --force --prune
   fi
 
   cd "$BASE"
   LATEST_TAG="$(git tag --sort=-creatordate | head -n1 || true)"
   if [ -n "$LATEST_TAG" ]; then
+    echo "  [-] checking out tag $LATEST_TAG"
     git checkout --force "$LATEST_TAG"
   else
     log "No tags on $NAME — deploying default branch HEAD"
   fi
 
   # Sync source into app dir, excluding VCS metadata.
-  rsync -a --delete --exclude '.git' "$BASE/" "$APP/" 'data/'
-
+  rsync -a --delete --exclude '.git' --exclude 'data/' "$BASE/" "$APP/"
   # Place the app's runtime secrets (kept out of git, on the server only).
   if [ -f "/opt/deploy/$NAME.env" ]; then
     cp "/opt/deploy/$NAME.env" "$APP/.env"
@@ -411,6 +464,7 @@ main() {
 
   ensure_user "$ADMIN_USER"
 
+  set_system_hostname
   setup_ssh
   setup_firewall
   setup_fail2ban
