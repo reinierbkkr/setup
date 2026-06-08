@@ -450,6 +450,7 @@ deploy_docker_app() {
   docker compose up -d --build
 }
 
+
 healthcheck() {
   cat >/usr/local/bin/healthcheck <<'EOF'
 #!/bin/bash
@@ -474,6 +475,7 @@ for c in /etc/letsencrypt/live/*/cert.pem; do
   [ -e "$c" ] || continue
   echo "$(basename "$(dirname "$c")"): $(openssl x509 -enddate -noout -in "$c" | cut -d= -f2)"
 done
+
 EOF
 
   chmod +x /usr/local/bin/healthcheck
@@ -491,6 +493,7 @@ main() {
   ensure_pkg nodejs
   ensure_pkg npm
   ensure_pkg sqlite3
+  ensure_pkg tmux
 
   ensure_user "$ADMIN_USER"
 
