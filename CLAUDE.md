@@ -4,11 +4,24 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Single-file, idempotent provisioning script for a fresh Ubuntu 24.04 VPS (DigitalOcean). No build system, no tests, no framework — just `setup.sh` plus a config file. Deployed to and run from `/opt/deploy/setup.sh` on the server. Safe to rerun anytime.
+Two idempotent provisioning scripts for Ubuntu 24.04. No build system, no tests, no framework — just shell scripts plus config files. Safe to rerun anytime.
 
-- `setup.sh` — all provisioning logic.
-- `.env.example` — template for the runtime config (copy to `/opt/deploy/config.env` on the server and fill in real values).
-- `description.md` — design spec / source of truth for intended behavior. The script does not yet implement everything described here (see Gaps below).
+### VPS (`vps/`)
+
+DigitalOcean VPS. Deployed to and run from `/opt/deploy/setup.sh` on the server.
+
+- `vps/setup.sh` — all provisioning logic.
+- `vps/.env.example` — template for the runtime config (copy to `/opt/deploy/config.env` on the server and fill in real values).
+- `vps/description.md` — design spec / source of truth for intended behavior. The script does not yet implement everything described here (see Gaps below).
+- `vps/placeholder/` — static placeholder page served by nginx before a real site is deployed.
+
+### Media server (`plex/`)
+
+Home media server (bare metal, LAN + Tailscale). Deployed to and run from `/opt/setup/setup.sh` on the server.
+
+- `plex/setup.sh` — all provisioning logic.
+- `plex/.env.example` — template for the runtime config (copy to `/opt/setup/config.env` on the server and fill in real values).
+- `plex/README.md` — full deploy instructions and config reference.
 
 ## Running
 
@@ -25,8 +38,8 @@ sudo /opt/deploy/setup.sh
 Lint locally before deploying:
 
 ```bash
-shellcheck setup.sh
-bash -n setup.sh   # syntax check only
+shellcheck vps/setup.sh
+bash -n vps/setup.sh   # syntax check only
 ```
 
 ## Architecture / conventions
